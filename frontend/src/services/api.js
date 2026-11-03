@@ -1,36 +1,52 @@
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
-export async function checkBackendHealth() {
-  const response = await fetch(`${API_BASE_URL}/health`);
+async function apiRequest(path, options = {}) {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
 
   if (!response.ok) {
-    throw new Error("Backend is unavailable.");
+    const error = await response.json().catch(() => null);
+
+    const message = error?.detail
+      ? typeof error.detail === "string"
+        ? error.detail
+        : JSON.stringify(error.detail)
+      : `Request failed with status ${response.status}`;
+
+    throw new Error(message);
   }
 
   return response.json();
 }
 
-export async function previewQuote(quoteData) {
-  const response = await fetch(
-    `${API_BASE_URL}/api/quotes/preview`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(quoteData),
-    }
-  );
+export function checkBackendHealth() {
+  return apiRequest("/health");
+}
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => null);
-    throw new Error(
-      error?.detail
-        ? JSON.stringify(error.detail)
-        : "Unable to generate quote preview."
-    );
-  }
+export function previewQuote(quoteData) {
+  return apiRequest("/api/quotes/preview", {
+    method: "POST",
+    body: JSON.stringify(quoteData),
+  });
+}
 
-  return response.json();
+export function createQuote(quoteData) {
+  return apiRequest("/api/quotes", {
+    method: "POST",
+    body: JSON.stringify(quoteData),
+  });
+}
+
+export function getQuotes() {
+  return apiRequest("/api/quotes");
+}
+
+export function getQuoteById(quoteId) {
+  return apiRequest(`/api/quotes/${quoteId}`);
 }
