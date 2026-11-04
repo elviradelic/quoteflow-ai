@@ -1,5 +1,5 @@
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   LayoutDashboard,
   FileText,
@@ -18,10 +18,21 @@ import {
   Sparkles,
   MoreHorizontal,
   RefreshCw,
+  Pencil,
+  Trash2,
+  Check,
+  Loader2,
+  Download,
 } from "lucide-react";
 
 import QuoteEditor from "./components/QuoteEditor";
-import { getQuotes } from "./services/api";
+
+import {
+  getQuotes,
+  deleteQuote,
+  updateQuoteStatus,
+  downloadQuotePdf,
+} from "./services/api";
 
 import "./App.css";
 
@@ -33,11 +44,17 @@ const menuItems = [
   { name: "Settings", icon: Settings },
 ];
 
+const quoteStatuses = ["Draft", "Pending", "Accepted"];
+
 function formatMoney(amount, currency = "USD") {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-  }).format(Number(amount) || 0);
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency,
+    }).format(Number(amount) || 0);
+  } catch {
+    return `${currency} ${Number(amount || 0).toFixed(2)}`;
+  }
 }
 
 function formatDate(value) {
@@ -59,6 +76,7 @@ function StatCard({ title, value, icon: Icon, subtitle }) {
     <div className="stat-card">
       <div className="stat-top">
         <span>{title}</span>
+
         <div className="stat-icon">
           <Icon size={19} />
         </div>
@@ -76,10 +94,18 @@ function StatCard({ title, value, icon: Icon, subtitle }) {
 export default function App() {
   const [page, setPage] = useState("Dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
   const [quotes, setQuotes] = useState([]);
   const [search, setSearch] = useState("");
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  const [selectedQuoteId, setSelectedQuoteId] = useState(null);
+  const [openMenuId, setOpenMenuId] = useState(null);
+  const [busyQuoteId, setBusyQuoteId] = useState(null);
+
+  const menuRef = useRef(null);
 
   const loadQuotes = useCallback(async () => {
     setLoading(true);
@@ -101,27 +127,116 @@ export default function App() {
     loadQuotes();
   }, [loadQuotes]);
 
+  useEffect(() => {
+    function handleOutsideClick(event) {
+      if (
+        menuRef.current &&
+        !menuRef.current.contains(event.target)
+      ) {
+        setOpenMenuId(null);
+      }
+    }
+
+    function handleEscape(event) {
+      if (event.key === "Escape") {
+        setOpenMenuId(null);
+      }
+    }
+
+    document.addEventListener("mousedown", handleOutsideClick);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, []);
+
   function navigate(destination) {
     setPage(destination);
     setSidebarOpen(false);
+    setOpenMenuId(null);
   }
 
   function openQuoteEditor() {
+    setSelectedQuoteId(null);
     setPage("Create Quote");
+    setSidebarOpen(false);
+    setOpenMenuId(null);
+  }
+
+  function editQuote(quoteId) {
+    setSelectedQuoteId(quoteId);
+    setPage("Edit Quote");
+    setOpenMenuId(null);
     setSidebarOpen(false);
   }
 
   async function handleQuoteSaved() {
     await loadQuotes();
+    setSelectedQuoteId(null);
     setPage("Quotes");
   }
 
+  async function handleDeleteQuote(quote) {
+    setOpenMenuId(null);
+
+    const confirmed = window.confirm(
+      `Are you sure you want to delete quote QT-${String(
+        quote.id
+      ).padStart(3, "0")} for ${quote.client_name}?\n\nThis action cannot be undone.`
+    );
+
+    if (!confirmed) return;
+
+    setBusyQuoteId(quote.id);
+    setError("");
+
+    try {
+      await deleteQuote(quote.id);
+      await loadQuotes();
+    } catch (err) {
+      setError(err.message || "Unable to delete quote.");
+    } finally {
+      setBusyQuoteId(null);
+    }
+  }
+
+  async function handleStatusChange(quoteId, status) {
+    setOpenMenuId(null);
+    setBusyQuoteId(quoteId);
+    setError("");
+
+    try {
+      await updateQuoteStatus(quoteId, status);
+      await loadQuotes();
+    } catch (err) {
+      setError(err.message || "Unable to update quote status.");
+    } finally {
+      setBusyQuoteId(null);
+    }
+  }
+
+  async function handleDownloadPdf(quoteId) {
+    setOpenMenuId(null);
+    setBusyQuoteId(quoteId);
+    setError("");
+
+    try {
+      await downloadQuotePdf(quoteId);
+    } catch (err) {
+      setError(err.message || "Unable to download PDF.");
+    } finally {
+      setBusyQuoteId(null);
+    }
+  }
+
   const filteredQuotes = quotes.filter((quote) => {
-    const query = search.toLowerCase();
+    const query = search.trim().toLowerCase();
 
     return (
-      quote.client_name.toLowerCase().includes(query) ||
-      quote.project_name.toLowerCase().includes(query) ||
+      (quote.client_name || "").toLowerCase().includes(query) ||
+      (quote.project_name || "").toLowerCase().includes(query) ||
       String(quote.id).includes(query)
     );
   });
@@ -141,10 +256,10 @@ export default function App() {
   const totalQuotes = quotes.length;
 
   const totalValueByCurrency = quotes.reduce((totals, quote) => {
-    const currency = quote.currency;
+    const currency = quote.currency || "USD";
 
     totals[currency] =
-      (totals[currency] || 0) + Number(quote.subtotal);
+      (totals[currency] || 0) + Number(quote.subtotal || 0);
 
     return totals;
   }, {});
@@ -154,6 +269,92 @@ export default function App() {
     .join(" + ");
 
   const totalValue = totalValueDisplay || "$0.00";
+
+  function renderQuoteActions(quote) {
+    const isOpen = openMenuId === quote.id;
+    const isBusy = busyQuoteId === quote.id;
+
+    return (
+      <div
+        className="quote-action-wrap"
+        ref={isOpen ? menuRef : null}
+      >
+        <button
+          type="button"
+          className="quote-menu-trigger"
+          title="Quote actions"
+          aria-label={`Actions for quote ${quote.id}`}
+          aria-expanded={isOpen}
+          disabled={isBusy}
+          onClick={() =>
+            setOpenMenuId(isOpen ? null : quote.id)
+          }
+        >
+          {isBusy ? (
+            <Loader2 size={18} className="spin" />
+          ) : (
+            <MoreHorizontal size={19} />
+          )}
+        </button>
+
+        {isOpen && (
+          <div className="quote-action-menu">
+            <button
+              type="button"
+              onClick={() => editQuote(quote.id)}
+            >
+              <Pencil size={15} />
+              Edit quote
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleDownloadPdf(quote.id)}
+            >
+              <Download size={15} />
+              Download PDF
+            </button>
+
+            <div className="quote-menu-divider" />
+
+            <div className="quote-menu-label">
+              CHANGE STATUS
+            </div>
+
+            {quoteStatuses.map((status) => (
+              <button
+                type="button"
+                key={status}
+                onClick={() =>
+                  handleStatusChange(quote.id, status)
+                }
+                disabled={quote.status === status}
+              >
+                {quote.status === status ? (
+                  <Check size={15} />
+                ) : (
+                  <span className="quote-menu-icon-space" />
+                )}
+
+                {status}
+              </button>
+            ))}
+
+            <div className="quote-menu-divider" />
+
+            <button
+              type="button"
+              className="quote-delete-action"
+              onClick={() => handleDeleteQuote(quote)}
+            >
+              <Trash2 size={15} />
+              Delete quote
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   function renderQuoteTable() {
     return (
@@ -209,7 +410,7 @@ export default function App() {
                   <th>AMOUNT</th>
                   <th>STATUS</th>
                   <th>DATE</th>
-                  <th></th>
+                  <th>ACTIONS</th>
                 </tr>
               </thead>
 
@@ -233,16 +434,18 @@ export default function App() {
 
                     <td>
                       <span
-                        className={`status-badge ${quote.status.toLowerCase()}`}
+                        className={`status-badge ${(
+                          quote.status || "Draft"
+                        ).toLowerCase()}`}
                       >
-                        {quote.status}
+                        {quote.status || "Draft"}
                       </span>
                     </td>
 
                     <td>{formatDate(quote.created_at)}</td>
 
                     <td>
-                      <MoreHorizontal size={19} />
+                      {renderQuoteActions(quote)}
                     </td>
                   </tr>
                 ))}
@@ -255,9 +458,14 @@ export default function App() {
   }
 
   function renderContent() {
-    if (page === "Create Quote") {
+    if (
+      page === "Create Quote" ||
+      page === "Edit Quote"
+    ) {
       return (
         <QuoteEditor
+          key={selectedQuoteId ?? "new"}
+          quoteId={selectedQuoteId}
           onBack={() => navigate("Quotes")}
           onSave={handleQuoteSaved}
         />
@@ -277,6 +485,7 @@ export default function App() {
             </div>
 
             <button
+              type="button"
               className="new-quote-btn"
               onClick={openQuoteEditor}
             >
@@ -334,6 +543,7 @@ export default function App() {
               </p>
 
               <button
+                type="button"
                 onClick={openQuoteEditor}
                 className="promo-button"
               >
@@ -364,6 +574,7 @@ export default function App() {
             </div>
 
             <button
+              type="button"
               className="new-quote-btn"
               onClick={openQuoteEditor}
             >
@@ -380,9 +591,7 @@ export default function App() {
     return (
       <div className="placeholder-page">
         <h1>{page}</h1>
-        <p>
-          We're building this module next.
-        </p>
+        <p>We're building this module next.</p>
       </div>
     );
   }
@@ -402,6 +611,7 @@ export default function App() {
           </span>
 
           <button
+            type="button"
             className="mobile-close"
             onClick={() => setSidebarOpen(false)}
           >
@@ -416,9 +626,19 @@ export default function App() {
         <nav className="sidebar-nav">
           {menuItems.map(({ name, icon: Icon }) => (
             <button
+              type="button"
               key={name}
               className={`nav-item ${
-                page === name ? "active" : ""
+                page === name ||
+                (
+                  name === "Quotes" &&
+                  (
+                    page === "Create Quote" ||
+                    page === "Edit Quote"
+                  )
+                )
+                  ? "active"
+                  : ""
               }`}
               onClick={() => navigate(name)}
             >
@@ -462,6 +682,7 @@ export default function App() {
         <header className="topbar">
           <div className="topbar-left">
             <button
+              type="button"
               className="mobile-menu"
               onClick={() => setSidebarOpen(true)}
             >
@@ -475,6 +696,7 @@ export default function App() {
 
           <div className="topbar-right">
             <button
+              type="button"
               className="icon-button"
               title="Refresh quotes"
               onClick={loadQuotes}
@@ -483,6 +705,7 @@ export default function App() {
             </button>
 
             <button
+              type="button"
               className="icon-button"
               title="Notifications"
             >
