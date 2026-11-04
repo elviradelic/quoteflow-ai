@@ -401,10 +401,10 @@
 /* QUOTES TABLE */
 
 .table-card {
-  overflow: hidden;
+  background: white;
   border: 1px solid #eceef4;
   border-radius: 14px;
-  background: #ffffff;
+  overflow: visible;
 }
 
 .table-header {
@@ -677,4 +677,142 @@
   .promo-banner h2 {
     font-size: 21px;
   }
+}
+
+/* Quote actions dropdown */
+
+.quote-action-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.quote-menu-trigger {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #8d93a6;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.quote-menu-trigger:hover,
+.quote-menu-trigger[aria-expanded="true"] {
+  background: #f1edff;
+  color: #7454e8;
+  border-color: #e6dfff;
+}
+
+.quote-action-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 100;
+  width: 190px;
+  padding: 7px;
+  background: #ffffff;
+  border: 1px solid #ececf3;
+  border-radius: 12px;
+  box-shadow: 0 12px 35px rgba(25, 30, 65, 0.13);
+}
+
+.quote-action-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 11px;
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  color: #41465b;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.quote-action-menu button:hover:not(:disabled) {
+  background: #f5f2ff;
+  color: #7454e8;
+}
+
+.quote-action-menu button:disabled {
+  color: #aaaebe;
+  cursor: default;
+}
+
+.quote-menu-divider {
+  height: 1px;
+  background: #eff0f5;
+  margin: 6px 3px;
+}
+
+.quote-menu-label {
+  padding: 8px 11px 5px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: #a0a5b6;
+}
+
+.quote-menu-icon-space {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+.quote-action-menu .quote-delete-action {
+  color: #e05263;
+}
+
+.quote-action-menu .quote-delete-action:hover {
+  background: #fff0f2;
+  color: #d83c50;
+}
+
+.quotes-table td:last-child {
+  overflow: visible;
+}
+
+.spin {
+  animation: quote-spin 1s linear infinite;
+}
+
+@keyframes quote-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Allow quote dropdowns to extend beyond table rows */
+
+.table-card {
+  overflow: visible;
+}
+
+.table-scroll {
+  overflow-x: visible;
+}
+
+.quote-action-wrap {
+  position: relative;
+}
+
+.quote-action-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 1000;
+}
+
+.table-card tr:has(.quote-action-menu) {
+  position: relative;
+  z-index: 10;
 }

@@ -15,6 +15,7 @@ app = FastAPI(
     description="Backend API for QuoteFlow AI SaaS.",
 )
 
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -22,9 +23,10 @@ app.add_middleware(
         "http://127.0.0.1:5173",
     ],
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Content-Type"],
 )
+
 
 app.include_router(quotes_router)
 

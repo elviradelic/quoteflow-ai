@@ -1,5 +1,5 @@
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowLeft,
   Plus,
@@ -12,36 +12,104 @@ import {
 import {
   previewQuote,
   createQuote,
+  getQuoteById,
+  updateQuote,
 } from "../services/api";
 
 import "./QuoteEditor.css";
 
-function newItem() {
+function newItem(item = {}) {
   return {
     id: crypto.randomUUID(),
-    description: "",
-    quantity: "1",
-    unit_price: "0",
+    description: item.description ?? "",
+    quantity: String(item.quantity ?? "1"),
+    unit_price: String(item.unit_price ?? "0"),
   };
 }
 
-export default function QuoteEditor({ onBack, onSave }) {
+export default function QuoteEditor({
+  onBack,
+  onSave,
+  quoteId = null,
+}) {
+  const isEditing = quoteId !== null && quoteId !== undefined;
+
   const [clientName, setClientName] = useState("");
   const [projectName, setProjectName] = useState("");
   const [currency, setCurrency] = useState("USD");
   const [items, setItems] = useState([newItem()]);
+  const [quoteStatus, setQuoteStatus] = useState("Draft");
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [loadingQuote, setLoadingQuote] = useState(isEditing);
 
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
 
-  const formatMoney = (value) =>
-    new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency,
-    }).format(Number(value) || 0);
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadQuote() {
+      if (!isEditing) {
+        setClientName("");
+        setProjectName("");
+        setCurrency("USD");
+        setItems([newItem()]);
+        setQuoteStatus("Draft");
+        setError("");
+        setResult(null);
+        setLoadingQuote(false);
+        return;
+      }
+
+      setLoadingQuote(true);
+      setError("");
+      setResult(null);
+
+      try {
+        const quote = await getQuoteById(quoteId);
+
+        if (cancelled) return;
+
+        setClientName(quote.client_name ?? "");
+        setProjectName(quote.project_name ?? "");
+        setCurrency(quote.currency ?? "USD");
+        setQuoteStatus(quote.status ?? "Draft");
+
+        setItems(
+          quote.items?.length
+            ? quote.items.map((item) => newItem(item))
+            : [newItem()]
+        );
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.message || "Unable to load quote.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingQuote(false);
+        }
+      }
+    }
+
+    loadQuote();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [quoteId, isEditing]);
+
+  const formatMoney = (value) => {
+    try {
+      return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency,
+      }).format(Number(value) || 0);
+    } catch {
+      return `${currency} ${(Number(value) || 0).toFixed(2)}`;
+    }
+  };
 
   const total = items.reduce(
     (sum, item) =>
@@ -59,9 +127,7 @@ export default function QuoteEditor({ onBack, onSave }) {
   function updateItem(id, field, value) {
     setItems((current) =>
       current.map((item) =>
-        item.id === id
-          ? { ...item, [field]: value }
-          : item
+        item.id === id ? { ...item, [field]: value } : item
       )
     );
 
@@ -86,8 +152,7 @@ export default function QuoteEditor({ onBack, onSave }) {
   function buildPayload() {
     return {
       client_name: clientName.trim(),
-      project_name:
-        projectName.trim() || "Untitled project",
+      project_name: projectName.trim() || "Untitled project",
       currency,
       items: items.map((item) => ({
         description: item.description.trim(),
@@ -104,19 +169,27 @@ export default function QuoteEditor({ onBack, onSave }) {
     }
 
     if (
-      items.some(
-        (item) =>
+      items.some((item) => {
+        const quantity = Number(item.quantity);
+        const price = Number(item.unit_price);
+
+        return (
           !item.description.trim() ||
           item.quantity === "" ||
           item.unit_price === "" ||
-          !Number.isFinite(Number(item.quantity)) ||
-          !Number.isFinite(Number(item.unit_price)) ||
-          Number(item.quantity) <= 0 ||
-          Number(item.unit_price) < 0
-      )
+          !Number.isFinite(quantity) ||
+          !Number.isFinite(price) ||
+          quantity <= 0 ||
+          price < 0 ||
+          !/^\d+(\.\d{1,2})?$/.test(String(item.quantity)) ||
+          !/^\d+(\.\d{1,2})?$/.test(String(item.unit_price)) ||
+          quantity >= 10000000000 ||
+          price >= 10000000000
+        );
+      })
     ) {
       setError(
-        "Please complete all service items with valid quantities and prices."
+        "Please enter valid descriptions, quantities and prices (up to two decimal places)."
       );
       return false;
     }
@@ -154,16 +227,51 @@ export default function QuoteEditor({ onBack, onSave }) {
     setSaving(true);
 
     try {
-      const savedQuote = await createQuote(buildPayload());
+      const payload = buildPayload();
+
+      const savedQuote = isEditing
+        ? await updateQuote(quoteId, payload)
+        : await createQuote(payload);
 
       onSave?.(savedQuote);
     } catch (err) {
       setError(
-        err.message || "Unable to save quote."
+        err.message ||
+          (isEditing
+            ? "Unable to update quote."
+            : "Unable to save quote.")
       );
     } finally {
       setSaving(false);
     }
+  }
+
+  if (loadingQuote) {
+    return (
+      <div className="quote-editor">
+        <button
+          className="editor-back"
+          type="button"
+          onClick={onBack}
+        >
+          <ArrowLeft size={17} />
+          Back to Quotes
+        </button>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            padding: 40,
+            color: "#777c90",
+          }}
+        >
+          <Loader2 size={22} />
+          Loading quote...
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -183,14 +291,22 @@ export default function QuoteEditor({ onBack, onSave }) {
             QUOTEFLOW AI / QUOTES
           </span>
 
-          <h1>Create a new quote</h1>
+          <h1>
+            {isEditing
+              ? `Edit quote QT-${String(quoteId).padStart(3, "0")}`
+              : "Create a new quote"}
+          </h1>
 
           <p>
-            Build a professional proposal for your client.
+            {isEditing
+              ? "Update the details of your existing proposal."
+              : "Build a professional proposal for your client."}
           </p>
         </div>
 
-        <span className="editor-draft">Draft</span>
+        <span className="editor-draft">
+          {quoteStatus}
+        </span>
       </div>
 
       <div className="editor-layout">
@@ -212,6 +328,7 @@ export default function QuoteEditor({ onBack, onSave }) {
             <input
               id="client-name"
               required
+              maxLength={200}
               value={clientName}
               onChange={(event) => {
                 setClientName(event.target.value);
@@ -226,6 +343,7 @@ export default function QuoteEditor({ onBack, onSave }) {
 
             <input
               id="project-name"
+              maxLength={255}
               value={projectName}
               onChange={(event) => {
                 setProjectName(event.target.value);
@@ -246,29 +364,12 @@ export default function QuoteEditor({ onBack, onSave }) {
                 clearPreview();
               }}
             >
-              <option value="USD">
-                USD — US Dollar
-              </option>
-
-              <option value="EUR">
-                EUR — Euro
-              </option>
-
-              <option value="GBP">
-                GBP — British Pound
-              </option>
-
-              <option value="BAM">
-                BAM — Convertible Mark
-              </option>
-
-              <option value="CAD">
-                CAD — Canadian Dollar
-              </option>
-
-              <option value="AUD">
-                AUD — Australian Dollar
-              </option>
+              <option value="USD">USD — US Dollar</option>
+              <option value="EUR">EUR — Euro</option>
+              <option value="GBP">GBP — British Pound</option>
+              <option value="BAM">BAM — Convertible Mark</option>
+              <option value="CAD">CAD — Canadian Dollar</option>
+              <option value="AUD">AUD — Australian Dollar</option>
             </select>
           </div>
 
@@ -299,9 +400,7 @@ export default function QuoteEditor({ onBack, onSave }) {
                 key={item.id}
               >
                 <div className="editor-item-title">
-                  <strong>
-                    Item {index + 1}
-                  </strong>
+                  <strong>Item {index + 1}</strong>
 
                   <button
                     type="button"
@@ -311,9 +410,7 @@ export default function QuoteEditor({ onBack, onSave }) {
                       loading ||
                       saving
                     }
-                    onClick={() =>
-                      removeItem(item.id)
-                    }
+                    onClick={() => removeItem(item.id)}
                   >
                     <Trash2 size={17} />
                   </button>
@@ -426,8 +523,10 @@ export default function QuoteEditor({ onBack, onSave }) {
               )}
 
               {saving
-                ? "Saving quote..."
-                : "Save Quote"}
+                ? "Saving..."
+                : isEditing
+                  ? "Update Quote"
+                  : "Save Quote"}
             </button>
           </div>
         </form>
@@ -505,7 +604,6 @@ export default function QuoteEditor({ onBack, onSave }) {
           {result && (
             <div className="preview-verified">
               <FileCheck2 size={16} />
-
               Backend verified:{" "}
               {formatMoney(result.subtotal)}
             </div>
